@@ -157,7 +157,18 @@ footer{color:var(--muted);font-size:11.5px;text-align:center;padding:22px 16px 8
 .chipall{border:0;background:none;padding:4px 6px;font:inherit;font-size:12px;font-weight:600;color:var(--ucd-blue);text-decoration:underline;cursor:pointer}
 .empty{padding:24px;text-align:center;color:var(--muted)}
 .help .reflinks{display:flex;flex-wrap:wrap;gap:6px}
-@media print{.modebar,#chips,.toolbar,.previewbar,.bar{display:none!important}}
+#printout{display:none}
+body.printing #printout{display:block}
+@media print{.modebar,#chips,.toolbar,.previewbar,.bar{display:none!important}
+ body.printing > *:not(#printout){display:none!important}
+ body.printing #printout{display:block!important}
+ @page{margin:0.5in}}
+.pmenu{position:relative;display:inline-block}
+.pmenu .pm{display:none;position:absolute;bottom:110%;right:0;background:#fff;border:1px solid var(--line,#d7dde5);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.15);padding:6px;min-width:220px;z-index:50}
+.pmenu.open .pm{display:block}
+.pm button{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 10px;font:inherit;font-size:14px;border-radius:6px;cursor:pointer}
+.pm button:hover{background:#eef2f7}
+.pm small{display:block;color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -222,7 +233,11 @@ footer{color:var(--muted);font-size:11.5px;text-align:center;padding:22px 16px 8
     <button class="b go" id="tbtn" onclick="toggleTimer()">Start</button>
     <button class="icon" title="Reset timer" onclick="resetTimer()">&#8635;</button>
   </div>
-  <button class="b" onclick="window.print()">Print</button>
+  <div class="pmenu" id="pmenu"><button class="b" onclick="document.getElementById('pmenu').classList.toggle('open')">Print / Export</button>
+    <div class="pm">
+      <button onclick="exportRubric('print')">Print or save as PDF<small>Blank rubric for handwritten grading</small></button>
+      <button onclick="exportRubric('word')">Download Word file<small>Editable blank rubric (.doc)</small></button>
+    </div></div>
   <button class="b primary" onclick="resetAll()">Reset</button>
 </div></div>
 <script>
@@ -409,6 +424,57 @@ document.getElementById("allHelp").addEventListener("change",e=>{
   const on=e.target.checked;
   allRows.forEach(r=>{const h=r.querySelector(".help");const inf=r.querySelector(".info");if(h)h.hidden=!on;if(inf)inf.classList.toggle("open",on);});
 });
+/* ---- blank rubric export (print/PDF or Word); builds from the current view; nothing leaves the device ---- */
+function esc(t){return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function rubricHTML(){
+  const osce=store.mode==="osce",S=STATIONS[store.st];
+  const title=osce?("PAS 410A OSCE — "+S.name+" station (focused)"):"PAS 410A Musculoskeletal Exam";
+  const cell='border:1px solid #888;padding:4px 6px;font-size:10pt;vertical-align:top;';
+  const box=cell+'width:32px;text-align:center;';
+  let h='<h2 style="font-family:Arial;font-size:15pt;margin:0 0 4px">'+esc(title)+'</h2>'+
+    '<p style="font-family:Arial;font-size:10pt;margin:0 0 10px">PAS 400/410 program rubric (7.20.26). Each row is all or nothing: 1 if every part is complete and correct, otherwise 0.</p>'+
+    '<table style="border-collapse:collapse;width:100%;font-family:Arial;margin-bottom:10px"><tr>'+
+    '<td style="'+cell+'width:50%">Student:</td><td style="'+cell+'">Evaluator:</td><td style="'+cell+'width:18%">Date:</td></tr></table>';
+  let base=0,hasCd=false;
+  VIS.forEach(v=>{
+    const rows=v.rows,m=rows.filter(it=>!it.sub&&!(it.cd&&osce)).length;base+=m;
+    const cdn=rows.filter(it=>it.cd&&osce).length;if(cdn)hasCd=true;
+    h+='<table style="border-collapse:collapse;width:100%;font-family:Arial;margin:8px 0;page-break-inside:auto">'+
+       '<tr style="background:#dfe6ef"><td colspan="2" style="'+cell+'font-weight:bold;font-size:11pt">'+esc(v.sec.title)+
+       (v.partial?(v.partial==="gen"?" (general survey and vitals)":" (auscultation)"):"")+'</td>'+
+       '<td style="'+box+'font-weight:bold">1</td><td style="'+box+'font-weight:bold">0</td><td style="'+cell+'width:22%;font-weight:bold">Comments</td></tr>';
+    let n=0;
+    rows.forEach(it=>{
+      if(it.sub){const cd=it.cd&&osce;
+        h+='<tr><td colspan="5" style="'+cell+'background:#f3f5f8;font-style:italic">'+esc(cd?"Special tests — case dependent: score only the tests performed (verbalize name, positive finding, and meaning)":it.sub)+'</td></tr>';return;}
+      n++;
+      let tags=[];if(it.ps)tags.push("program-specific");if(it.cd&&osce)tags.push("case dependent");if(it.opt==="obgyn")tags.push("if applicable");
+      h+='<tr style="page-break-inside:avoid"><td style="'+cell+'width:26px;text-align:right">'+n+'</td><td style="'+cell+'">'+esc(it.t)+
+         (tags.length?' <span style="color:#8a5a00;font-size:8.5pt">('+tags.join(", ")+')</span>':'')+
+         '</td><td style="'+box+'">&#9744;</td><td style="'+box+'">&#9744;</td><td style="'+cell+'"></td></tr>';
+    });
+    h+='<tr><td colspan="5" style="'+cell+'text-align:right;font-weight:bold">'+esc(v.sec.title)+' subtotal: ______ / '+m+(cdn?' + special tests performed':'')+'</td></tr></table>';
+  });
+  h+='<p style="font-family:Arial;font-size:12pt;font-weight:bold;margin-top:12px">Total: ______ / '+base+(hasCd?' + special tests performed (______ / ______ )':'')+'</p>';
+  if(VIS.some(v=>v.rows.some(it=>it.ps)))h+='<p style="font-family:Arial;font-size:9pt;color:#555">Program-specific rows are required by the PAS 400/410 rubric but not by the proposed national standard.</p>';
+  return {title,h};
+}
+function exportRubric(kind){
+  document.getElementById("pmenu").classList.remove("open");
+  const r=rubricHTML();gcEvent("export-"+kind);
+  if(kind==="word"){
+    const doc='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>'+esc(r.title)+
+      '</title><style>@page WordSection1{size:8.5in 11in;margin:0.6in}div.WordSection1{page:WordSection1}</style></head><body><div class="WordSection1">'+r.h+'</div></body></html>';
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿",doc],{type:"application/msword"}));
+    a.download=r.title.replace(/[^A-Za-z0-9]+/g,"_").replace(/_+$/,"")+".doc";document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);return;
+  }
+  let p=document.getElementById("printout");if(!p){p=document.createElement("div");p.id="printout";document.body.appendChild(p);}
+  p.innerHTML=r.h;document.body.classList.add("printing");
+  const done=()=>{document.body.classList.remove("printing");window.removeEventListener("afterprint",done);};
+  window.addEventListener("afterprint",done);window.print();setTimeout(done,1500);
+}
+document.addEventListener("click",e=>{const m=document.getElementById("pmenu");if(m&&!m.contains(e.target))m.classList.remove("open");});
 function resetAll(){
   if(!confirm("Clear the scores for this checklist on this device?"))return;
   store.scores[viewKey()]={};save();allRows.forEach(paintRow);recalc();
